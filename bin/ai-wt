@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+ai-wt: git worktree helper for parallel AI development
+
+Usage:
+  ai-wt create <feature>
+  ai-wt remove <feature>
+  ai-wt list
+  ai-wt help
+
+Conventions:
+  branches: feature/<feature>/{api,ui,review}
+  paths:    wt/<feature>-{api,ui,review}
+
+Examples:
+  ai-wt create feat-todo-app
+  ai-wt list
+  ai-wt remove feat-todo-app
+USAGE
+}
+
+die() { echo "Error: $*" >&2; exit 1; }
+
+# Must be inside a git repo
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[[ -n "$ROOT" ]] || die "not inside a git repository"
+cd "$ROOT"
+
+CMD="${1:-help}"
+FEATURE="${2:-}"
+WT_DIR="wt"
+
+ensure_main_ready() {
+  # Ensure 'main' exists
+  git show-ref --verify --quiet refs/heads/main || die "branch 'main' not found"
+
+  # Switch to main and update (best-effort; allow offline)
+  git switch main >/dev/null 2>&1 || die "failed to switch to main"
+  git pull --rebase >/dev/null 2>&1 || true
+}
+
+create_one() {
+  local feature="$1" role="$2"
+  local branch="feature/${feature}/${role}"
+  local path="${WT_DIR}/${feature}-${role}"
+
+  if [[ -e "$path" ]]; then
+    echo "Skip: path exists: $path"
+    return 0
+  fi
+
+  if git show-ref --verify --quiet "refs/heads/${branch}"; then
+    git worktree add "$path" "$branch"
+  else
+    git worktree add -b "$branch" "$path" main
+  fi
+  echo "Created: $path  [$branch]"
+}
+
+remove_one() {
+  local feature="$1" role="$2"
+  local path="${WT_DIR}/${feature}-${role}"
+
+  if [[ -e "$path" ]]; then
+    git worktree remove "$path"
+    echo "Removed: $path"
+  else
+    echo "Skip: not found: $path"
+  fi
+}
+
+case "$CMD" in
+  create)
+    [[ -n "$FEATURE" ]] || { usage; exit 1; }
+    mkdir -p "$WT_DIR"
+    ensure_main_ready
+    for role in api ui review; do
+      create_one "$FEATURE" "$role"
+    done
+    ;;
+  remove)
+    [[ -n "$FEATURE" ]] || { usage; exit 1; }
+    for role in api ui review; do
+      remove_one "$FEATURE" "$role"
+    done
+    ;;
+  list)
+    git worktree list
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    usage
+    die "unknown command: $CMD"
+    ;;
+esac
