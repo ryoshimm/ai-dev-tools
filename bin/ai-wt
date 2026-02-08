@@ -6,38 +6,55 @@ usage() {
 ai-wt: git worktree helper for parallel AI development
 
 Usage:
-  ai-wt create <feature>
-  ai-wt remove <feature>
+  ai-wt create <feature> --roles <role1,role2,...>
+  ai-wt remove <feature> --roles <role1,role2,...>
   ai-wt list
   ai-wt help
 
-Conventions:
-  branches: feature/<feature>/{api,ui,review}
-  paths:    wt/<feature>-{api,ui,review}
+Options:
+  --roles   Comma-separated list of roles (required for create/remove)
+            Any value is accepted (e.g. ui, api, batch, worker, ...)
 
 Examples:
-  ai-wt create feat-todo-app
-  ai-wt list
-  ai-wt remove feat-todo-app
+  ai-wt create fix-main-board --roles ui
+  ai-wt create add-vote --roles ui,api
+  ai-wt create feat-todo-app --roles ui,api,batch
+  ai-wt remove feat-todo-app --roles ui
 USAGE
 }
 
 die() { echo "Error: $*" >&2; exit 1; }
 
-# Must be inside a git repo
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [[ -n "$ROOT" ]] || die "not inside a git repository"
 cd "$ROOT"
 
 CMD="${1:-help}"
-FEATURE="${2:-}"
+FEATURE=""
+ROLES=""
+
+shift || true
+
+# parse args
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --roles)
+      ROLES="$2"
+      shift 2
+      ;;
+    *)
+      [[ -z "$FEATURE" ]] && FEATURE="$1" || die "unknown argument: $1"
+      shift
+      ;;
+  esac
+done
+
+ROLE_LIST=()
+[[ -n "$ROLES" ]] && IFS=',' read -r -a ROLE_LIST <<< "$ROLES"
 WT_DIR="wt"
 
 ensure_main_ready() {
-  # Ensure 'main' exists
   git show-ref --verify --quiet refs/heads/main || die "branch 'main' not found"
-
-  # Switch to main and update (best-effort; allow offline)
   git switch main >/dev/null 2>&1 || die "failed to switch to main"
   git pull --rebase >/dev/null 2>&1 || true
 }
@@ -49,7 +66,7 @@ create_one() {
 
   if [[ -e "$path" ]]; then
     echo "Skip: path exists: $path"
-    return 0
+    return
   fi
 
   if git show-ref --verify --quiet "refs/heads/${branch}"; then
@@ -57,7 +74,8 @@ create_one() {
   else
     git worktree add -b "$branch" "$path" main
   fi
-  echo "Created: $path  [$branch]"
+
+  echo "Created: $path [$branch]"
 }
 
 remove_one() {
@@ -75,15 +93,17 @@ remove_one() {
 case "$CMD" in
   create)
     [[ -n "$FEATURE" ]] || { usage; exit 1; }
+    [[ -n "$ROLES" ]] || die "--roles is required (e.g. --roles ui,api)"
     mkdir -p "$WT_DIR"
     ensure_main_ready
-    for role in api ui review; do
+    for role in "${ROLE_LIST[@]}"; do
       create_one "$FEATURE" "$role"
     done
     ;;
   remove)
     [[ -n "$FEATURE" ]] || { usage; exit 1; }
-    for role in api ui review; do
+    [[ -n "$ROLES" ]] || die "--roles is required (e.g. --roles ui,api)"
+    for role in "${ROLE_LIST[@]}"; do
       remove_one "$FEATURE" "$role"
     done
     ;;

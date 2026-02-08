@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 対象プロジェクトの .claude/ に BASIC.md, AI_DEV_RULES.md をシンボリックリンクし、
+# CLAUDE.md に参照指示を追記する。CONTEXT.md はテンプレートからコピーする。
+#
+# 動作:
+# - BASIC.md      → シンボリックリンク (ai-dev-tools テンプレートへ)
+# - AI_DEV_RULES.md → シンボリックリンク (ai-dev-tools テンプレートへ)
+# - CONTEXT.md    → テンプレートからコピー (プロジェクトごとに編集するため)
+# - CLAUDE.md     → 参照指示を追記 (なければ新規作成)
+
+# ai-dev-tools リポジトリのルートを特定(シンボリックリンクを解決)
+REAL_SCRIPT="$(readlink -f "$0" 2>/dev/null || readlink "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$REAL_SCRIPT")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+TEMPLATES_DIR="${REPO_DIR}/templates/claude"
+
+# 対象プロジェクトのルートを特定(カレントディレクトリの git root)
+PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  echo "Error: git リポジトリ内で実行してください。" >&2
+  exit 1
+fi
+
+# ai-dev-tools 自体では実行させない
+if [[ "$PROJECT_ROOT" == "$REPO_DIR" ]]; then
+  echo "Error: ai-dev-tools リポジトリ自体では実行できません。" >&2
+  echo "対象の開発プロジェクトのディレクトリで実行してください。" >&2
+  exit 1
+fi
+
+CLAUDE_DIR="${PROJECT_ROOT}/.claude"
+CLAUDE_MD="${CLAUDE_DIR}/CLAUDE.md"
+
+echo "== setup-claudemd =="
+echo "プロジェクト: ${PROJECT_ROOT}"
+echo ""
+
+mkdir -p "${CLAUDE_DIR}"
+
+# --- シンボリックリンク: BASIC.md, AI_DEV_RULES.md ---
+LINK_FILES=("BASIC.md" "AI_DEV_RULES.md")
+for fname in "${LINK_FILES[@]}"; do
+  src="${TEMPLATES_DIR}/${fname}"
+  dest="${CLAUDE_DIR}/${fname}"
+
+  if [[ ! -f "$src" ]]; then
+    echo "Warning: テンプレートが見つかりません: ${src}" >&2
+    continue
+  fi
+
+  if [[ -L "$dest" ]]; then
+    # 既にシンボリックリンクの場合: リンク先を確認
+    current_target="$(readlink -f "$dest" 2>/dev/null || readlink "$dest")"
+    expected_target="$(readlink -f "$src" 2>/dev/null || readlink "$src")"
+    if [[ "$current_target" == "$expected_target" ]]; then
+      echo "スキップ: ${fname} (リンク済み)"
+    else
+      rm "$dest"
+      ln -s "$src" "$dest"
+      echo "更新: ${fname} (リンク先を更新)"
+    fi
+  elif [[ -e "$dest" ]]; then
+    echo "スキップ: ${fname} (通常ファイルとして既に存在。手動で確認してください)"
+  else
+    ln -s "$src" "$dest"
+    echo "作成: ${fname} -> ${src}"
+  fi
+done
+
+# --- CONTEXT.md (コピー方式: プロジェクトごとに編集するため) ---
+CONTEXT_MD="${CLAUDE_DIR}/CONTEXT.md"
+CONTEXT_TMPL="${TEMPLATES_DIR}/context.md"
+
+if [[ ! -f "${CONTEXT_MD}" ]]; then
+  cp "${CONTEXT_TMPL}" "${CONTEXT_MD}"
+  echo "作成: CONTEXT.md (テンプレートからコピー)"
+  echo "  ※ プロジェクトに合わせて内容を編集してください"
+else
+  echo "スキップ: CONTEXT.md (既に存在)"
+fi
+
+# --- CLAUDE.md に参照指示を追記 ---
+AIDEV_MARKER="<!-- ai-dev-tools -->"
+
+if [[ ! -f "${CLAUDE_MD}" ]]; then
+  # CLAUDE.md が存在しない場合: 新規作成
+  cat > "${CLAUDE_MD}" << 'HEREDOC'
+# CLAUDE.md
+
+プロジェクト固有のルールをここに記述してください。
+
+---
+
+<!-- ai-dev-tools -->
+**以下のファイルを必ず参照すること:**
+- `.claude/BASIC.md` - 基本的な開発ルール
+- `.claude/AI_DEV_RULES.md` - 並列 AI 開発ルール
+- `.claude/CONTEXT.md` - プロジェクト固有のコンテキスト(存在する場合)
+<!-- /ai-dev-tools -->
+HEREDOC
+  echo "作成: CLAUDE.md (参照指示付きで新規作成)"
+else
+  # CLAUDE.md が既に存在する場合
+  if grep -Fq "$AIDEV_MARKER" "${CLAUDE_MD}"; then
+    echo "スキップ: CLAUDE.md (参照指示は追記済み)"
+  else
+    cat >> "${CLAUDE_MD}" << 'HEREDOC'
+
+<!-- ai-dev-tools -->
+**以下のファイルを必ず参照すること:**
+- `.claude/BASIC.md` - 基本的な開発ルール
+- `.claude/AI_DEV_RULES.md` - 並列 AI 開発ルール
+- `.claude/CONTEXT.md` - プロジェクト固有のコンテキスト(存在する場合)
+<!-- /ai-dev-tools -->
+HEREDOC
+    echo "追記: CLAUDE.md (参照指示を末尾に追加)"
+  fi
+fi
+
+echo ""
+echo "Done."
+echo ""
+echo "Next:"
+echo "  1) ${CLAUDE_MD} の内容を確認してください"
+echo "  2) ${CONTEXT_MD} をプロジェクトに合わせて編集してください"
