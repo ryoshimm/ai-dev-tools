@@ -81,28 +81,41 @@ npx skills add ryoshimm/ai-dev-tools -g
 ## wt（git worktree ヘルパー）
 
 並列開発で使用する git worktree の管理コマンドです。
+現在のブランチ名をベースに worktree を作成します。
 
 ```bash
-# インストール（~/bin にリンク）
-ln -sf "$(pwd)/bin/wt" ~/bin/wt
+# fzf のインストール
+brew install fzf
+
+# セットアップ（.zshrc に wt を登録）
+./setup.sh
 ```
 
 使い方：
 ```bash
-# サブタスクなし（1 worktree）
-wt create add-vote
+# サブタスクの worktree を作成（ブランチ名-subtask）
+wt create ui api
+wt create fix-review
 
-# サブタスクで分割（複数 worktree）
-wt create add-vote button display
-wt create add-vote ui api
+# 現在のブランチのサブタスク一覧
+wt tasks
+
+# サブタスクのディレクトリに移動（fzf で選択）
+wt dir
+
+# サブタスク名を直接指定して移動
+wt dir hotfix-bug
 
 # 削除
-wt remove add-vote
-wt remove add-vote button display
+wt remove ui api
+wt remove fix-review
 
-# 一覧
+# 全 worktree 一覧
 wt list
 ```
+
+- `main` / `master` ブランチでは確認プロンプトが表示されます
+- git リポジトリ外では実行できません
 
 ## 作業フロー
 

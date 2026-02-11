@@ -6,22 +6,36 @@ usage() {
 wt: git worktree helper for parallel AI development
 
 Usage:
-  wt create <feature> [subtask...]
-  wt remove <feature> [subtask...]
+  wt create <subtask...>
+  wt remove <subtask...>
+  wt tasks
+  wt dir <subtask>
   wt list
   wt help
 
-Examples:
-  # サブタスクなし（1 worktree）
-  wt create add-vote
+Creates worktrees based on the current branch name.
+Subtask name is required.
 
-  # サブタスクで分割（複数 worktree）
-  wt create add-vote button display
-  wt create add-vote ui api
+Examples:
+  # サブタスクで分割（現在のブランチ名-subtask）
+  wt create ui api
+  wt create fix-review
+
+  # 現在のブランチのサブタスク一覧
+  wt tasks
+
+  # サブタスクのディレクトリに移動（fzf で選択）
+  wt dir
+
+  # サブタスク名を直接指定して移動
+  wt dir hotfix-bug
 
   # 削除
-  wt remove add-vote
-  wt remove add-vote button display
+  wt remove fix-review
+  wt remove ui api
+
+  # 全 worktree 一覧
+  wt list
 USAGE
 }
 
@@ -34,7 +48,6 @@ cd "$ROOT"
 CMD="${1:-help}"
 shift || true
 
-FEATURE=""
 SUBTASKS=()
 
 # parse args
@@ -45,11 +58,7 @@ while [[ $# -gt 0 ]]; do
       exit 0
       ;;
     *)
-      if [[ -z "$FEATURE" ]]; then
-        FEATURE="$1"
-      else
-        SUBTASKS+=("$1")
-      fi
+      SUBTASKS+=("$1")
       shift
       ;;
   esac
@@ -57,14 +66,32 @@ done
 
 WT_DIR="wt"
 
-ensure_main_ready() {
-  git show-ref --verify --quiet refs/heads/main || die "branch 'main' not found"
-  git switch main >/dev/null 2>&1 || die "failed to switch to main"
-  git pull --rebase >/dev/null 2>&1 || true
+# 現在のブランチ名を取得
+current_branch() {
+  git symbolic-ref --short HEAD 2>/dev/null || die "detached HEAD: cannot determine branch name"
+}
+
+# ブランチ名からワークツリーのディレクトリ名を生成（/ を - に置換）
+branch_to_dirname() {
+  echo "$1" | tr '/' '-'
+}
+
+# main ブランチの場合は確認を要求
+check_main_branch() {
+  local branch="$1"
+  if [[ "$branch" == "main" || "$branch" == "master" ]]; then
+    echo "Warning: current branch is '${branch}'."
+    echo "Creating worktrees from '${branch}' is unusual. Are you sure?"
+    read -r -p "Continue? [y/N] " answer
+    case "$answer" in
+      [yY]|[yY][eE][sS]) ;;
+      *) echo "Aborted."; exit 1 ;;
+    esac
+  fi
 }
 
 create_one() {
-  local branch="$1" path="$2"
+  local branch="$1" path="$2" base="$3"
 
   if [[ -e "$path" ]]; then
     echo "Skip: path exists: $path"
@@ -74,7 +101,7 @@ create_one() {
   if git show-ref --verify --quiet "refs/heads/${branch}"; then
     git worktree add "$path" "$branch"
   else
-    git worktree add -b "$branch" "$path" main
+    git worktree add -b "$branch" "$path" "$base"
   fi
 
   echo "Created: $path [$branch]"
@@ -93,29 +120,78 @@ remove_one() {
 
 case "$CMD" in
   create)
-    [[ -n "$FEATURE" ]] || { usage; exit 1; }
-    mkdir -p "$WT_DIR"
-    ensure_main_ready
+    [[ ${#SUBTASKS[@]} -gt 0 ]] || { usage; exit 1; }
 
-    if [[ ${#SUBTASKS[@]} -eq 0 ]]; then
-      # サブタスクなし: 1 worktree
-      create_one "feature/${FEATURE}" "${WT_DIR}/${FEATURE}"
-    else
-      # サブタスクあり: サブタスクごとに worktree
-      for subtask in "${SUBTASKS[@]}"; do
-        create_one "feature/${FEATURE}/${subtask}" "${WT_DIR}/${FEATURE}-${subtask}"
-      done
-    fi
+    BRANCH="$(current_branch)"
+    check_main_branch "$BRANCH"
+
+    DIRNAME="$(branch_to_dirname "$BRANCH")"
+    mkdir -p "$WT_DIR"
+
+    for subtask in "${SUBTASKS[@]}"; do
+      create_one "${BRANCH}-${subtask}" "${WT_DIR}/${DIRNAME}-${subtask}" "$BRANCH"
+    done
     ;;
   remove)
-    [[ -n "$FEATURE" ]] || { usage; exit 1; }
+    [[ ${#SUBTASKS[@]} -gt 0 ]] || { usage; exit 1; }
 
-    if [[ ${#SUBTASKS[@]} -eq 0 ]]; then
-      remove_one "${WT_DIR}/${FEATURE}"
+    BRANCH="$(current_branch)"
+    DIRNAME="$(branch_to_dirname "$BRANCH")"
+
+    for subtask in "${SUBTASKS[@]}"; do
+      remove_one "${WT_DIR}/${DIRNAME}-${subtask}"
+    done
+    ;;
+  tasks)
+    BRANCH="$(current_branch)"
+    DIRNAME="$(branch_to_dirname "$BRANCH")"
+    PREFIX="${WT_DIR}/${DIRNAME}-"
+
+    found=0
+    while IFS= read -r line; do
+      wt_path="$(echo "$line" | awk '{print $1}')"
+      # ROOT からの相対パスに変換
+      rel_path="${wt_path#"$ROOT"/}"
+      if [[ "$rel_path" == "${PREFIX}"* ]]; then
+        subtask="${rel_path#"$PREFIX"}"
+        wt_branch="$(echo "$line" | sed 's/.*\[//;s/\]//')"
+        echo "  ${subtask}  →  ${rel_path}  [${wt_branch}]"
+        found=1
+      fi
+    done < <(git worktree list)
+
+    if [[ "$found" -eq 0 ]]; then
+      echo "No subtask worktrees for branch '${BRANCH}'."
+    fi
+    ;;
+  dir)
+    BRANCH="$(current_branch)"
+    DIRNAME="$(branch_to_dirname "$BRANCH")"
+
+    if [[ ${#SUBTASKS[@]} -eq 1 ]]; then
+      # 引数指定: 直接パスを出力
+      target="${ROOT}/${WT_DIR}/${DIRNAME}-${SUBTASKS[0]}"
+      [[ -d "$target" ]] || die "worktree not found: ${WT_DIR}/${DIRNAME}-${SUBTASKS[0]}"
+      echo "$target"
     else
-      for subtask in "${SUBTASKS[@]}"; do
-        remove_one "${WT_DIR}/${FEATURE}-${subtask}"
-      done
+      # 引数なし: fzf で選択
+      command -v fzf >/dev/null 2>&1 || die "fzf is required for interactive selection. Install it or specify subtask: wt dir <subtask>"
+
+      PREFIX="${WT_DIR}/${DIRNAME}-"
+      candidates=()
+      while IFS= read -r line; do
+        wt_path="$(echo "$line" | awk '{print $1}')"
+        rel_path="${wt_path#"$ROOT"/}"
+        if [[ "$rel_path" == "${PREFIX}"* ]]; then
+          subtask="${rel_path#"$PREFIX"}"
+          candidates+=("$subtask")
+        fi
+      done < <(git worktree list)
+
+      [[ ${#candidates[@]} -gt 0 ]] || die "No subtask worktrees for branch '${BRANCH}'."
+
+      selected="$(printf '%s\n' "${candidates[@]}" | fzf --prompt="subtask> " --height=~10 --reverse)" || exit 0
+      echo "${ROOT}/${WT_DIR}/${DIRNAME}-${selected}"
     fi
     ;;
   list)
