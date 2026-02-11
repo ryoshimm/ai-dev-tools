@@ -10,6 +10,10 @@ wt() {
     local dir
     dir="$("$__wt_script" dir "$@")" || return
     cd "$dir"
+  elif [[ "$1" == "root" ]]; then
+    local dir
+    dir="$("$__wt_script" root)" || return
+    cd "$dir"
   else
     "$__wt_script" "$@"
   fi

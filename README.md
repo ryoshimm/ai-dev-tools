@@ -106,6 +106,9 @@ wt dir
 # サブタスク名を直接指定して移動
 wt dir hotfix-bug
 
+# メインリポジトリのルートに戻る
+wt root
+
 # 削除
 wt remove ui api
 wt remove fix-review

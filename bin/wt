@@ -9,7 +9,8 @@ Usage:
   wt create <subtask...>
   wt remove <subtask...>
   wt tasks
-  wt dir <subtask>
+  wt dir [subtask]
+  wt root
   wt list
   wt help
 
@@ -29,6 +30,9 @@ Examples:
 
   # サブタスク名を直接指定して移動
   wt dir hotfix-bug
+
+  # メインリポジトリのルートに戻る
+  wt root
 
   # 削除
   wt remove fix-review
@@ -193,6 +197,9 @@ case "$CMD" in
       selected="$(printf '%s\n' "${candidates[@]}" | fzf --prompt="subtask> " --height=~10 --reverse)" || exit 0
       echo "${ROOT}/${WT_DIR}/${DIRNAME}-${selected}"
     fi
+    ;;
+  root)
+    git worktree list | head -1 | awk '{print $1}'
     ;;
   list)
     git worktree list
