@@ -3,23 +3,25 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-ai-wt: git worktree helper for parallel AI development
+wt: git worktree helper for parallel AI development
 
 Usage:
-  ai-wt create <feature> --roles <role1,role2,...>
-  ai-wt remove <feature> --roles <role1,role2,...>
-  ai-wt list
-  ai-wt help
-
-Options:
-  --roles   Comma-separated list of roles (required for create/remove)
-            Any value is accepted (e.g. ui, api, batch, worker, ...)
+  wt create <feature> [subtask...]
+  wt remove <feature> [subtask...]
+  wt list
+  wt help
 
 Examples:
-  ai-wt create fix-main-board --roles ui
-  ai-wt create add-vote --roles ui,api
-  ai-wt create feat-todo-app --roles ui,api,batch
-  ai-wt remove feat-todo-app --roles ui
+  # サブタスクなし（1 worktree）
+  wt create add-vote
+
+  # サブタスクで分割（複数 worktree）
+  wt create add-vote button display
+  wt create add-vote ui api
+
+  # 削除
+  wt remove add-vote
+  wt remove add-vote button display
 USAGE
 }
 
@@ -30,27 +32,29 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 cd "$ROOT"
 
 CMD="${1:-help}"
-FEATURE=""
-ROLES=""
-
 shift || true
+
+FEATURE=""
+SUBTASKS=()
 
 # parse args
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --roles)
-      ROLES="$2"
-      shift 2
+    -h|--help)
+      usage
+      exit 0
       ;;
     *)
-      [[ -z "$FEATURE" ]] && FEATURE="$1" || die "unknown argument: $1"
+      if [[ -z "$FEATURE" ]]; then
+        FEATURE="$1"
+      else
+        SUBTASKS+=("$1")
+      fi
       shift
       ;;
   esac
 done
 
-ROLE_LIST=()
-[[ -n "$ROLES" ]] && IFS=',' read -r -a ROLE_LIST <<< "$ROLES"
 WT_DIR="wt"
 
 ensure_main_ready() {
@@ -60,9 +64,7 @@ ensure_main_ready() {
 }
 
 create_one() {
-  local feature="$1" role="$2"
-  local branch="feature/${feature}/${role}"
-  local path="${WT_DIR}/${feature}-${role}"
+  local branch="$1" path="$2"
 
   if [[ -e "$path" ]]; then
     echo "Skip: path exists: $path"
@@ -79,8 +81,7 @@ create_one() {
 }
 
 remove_one() {
-  local feature="$1" role="$2"
-  local path="${WT_DIR}/${feature}-${role}"
+  local path="$1"
 
   if [[ -e "$path" ]]; then
     git worktree remove "$path"
@@ -93,19 +94,29 @@ remove_one() {
 case "$CMD" in
   create)
     [[ -n "$FEATURE" ]] || { usage; exit 1; }
-    [[ -n "$ROLES" ]] || die "--roles is required (e.g. --roles ui,api)"
     mkdir -p "$WT_DIR"
     ensure_main_ready
-    for role in "${ROLE_LIST[@]}"; do
-      create_one "$FEATURE" "$role"
-    done
+
+    if [[ ${#SUBTASKS[@]} -eq 0 ]]; then
+      # サブタスクなし: 1 worktree
+      create_one "feature/${FEATURE}" "${WT_DIR}/${FEATURE}"
+    else
+      # サブタスクあり: サブタスクごとに worktree
+      for subtask in "${SUBTASKS[@]}"; do
+        create_one "feature/${FEATURE}/${subtask}" "${WT_DIR}/${FEATURE}-${subtask}"
+      done
+    fi
     ;;
   remove)
     [[ -n "$FEATURE" ]] || { usage; exit 1; }
-    [[ -n "$ROLES" ]] || die "--roles is required (e.g. --roles ui,api)"
-    for role in "${ROLE_LIST[@]}"; do
-      remove_one "$FEATURE" "$role"
-    done
+
+    if [[ ${#SUBTASKS[@]} -eq 0 ]]; then
+      remove_one "${WT_DIR}/${FEATURE}"
+    else
+      for subtask in "${SUBTASKS[@]}"; do
+        remove_one "${WT_DIR}/${FEATURE}-${subtask}"
+      done
+    fi
     ;;
   list)
     git worktree list

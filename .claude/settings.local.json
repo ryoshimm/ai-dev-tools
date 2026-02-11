@@ -1,7 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Bash(~/bin/setup-claudemd:*)",
       "WebFetch(domain:addyosmani.com)",
       "WebFetch(domain:dev.to)",
       "WebFetch(domain:mikemason.ca)",
@@ -9,7 +8,8 @@
       "WebFetch(domain:venturebeat.com)",
       "WebFetch(domain:claude.com)",
       "WebFetch(domain:incident.io)",
-      "Bash(git mv:*)"
+      "Bash(git mv:*)",
+      "Bash(git rm:*)"
     ]
   }
 }

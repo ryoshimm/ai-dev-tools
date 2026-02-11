@@ -17,7 +17,7 @@ description: 現在の worktree の実装を plan と照合してレビューし
 1. `.claude/CLAUDE.md` を読み、プロジェクトルールに従う。
 2. `.claude/CONTEXT.md` が存在する場合、プロジェクト固有のルールも確認する。
 3. 現在のブランチから feature 名を特定する（例: `feature/add-vote/ui` → `add-vote`）。
-4. `.claude/plans/<feature>/` 配下のすべての plan ファイルを読む。
+4. `.claude/plans/<feature>/plan.md` を読む。
 5. このブランチの変更ファイルをすべて特定する（`git diff main --name-only`）。
 6. 変更ファイルをすべて読む。
 
@@ -26,11 +26,11 @@ description: 現在の worktree の実装を plan と照合してレビューし
 
 ### チェック項目
 1. **計画との整合性**
-   - 実装が plan（`00_spec.md`, `20_impl_*.md`）の要件を満たしているか
+   - 実装が plan.md の仕様・実装指示の要件を満たしているか
    - plan に定義されたスコープ外の変更がないか
    - plan で定義された完了条件を満たしているか
 
-2. **API 契約の遵守**（`11_api_contract.md` が存在する場合）
+2. **API 契約の遵守**（plan.md に API 契約セクションがある場合）
    - エンドポイント・型定義と実装が一致しているか
    - リクエスト / レスポンスの型が契約通りか
    - エラーレスポンスが契約通りか

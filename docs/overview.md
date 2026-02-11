@@ -36,55 +36,44 @@ AI に自由に考えさせるフェーズと、
 実装時は **plan を唯一の正**とし、
 AI が自己判断で仕様を変更してはならない。
 
----
-
-### 3. CLAUDE.md は「憲法」
-`.claude/CLAUDE.md` は：
-
-- Claude の行動規範
-- 判断ルール
-- 禁止事項
-
-を定義する **最上位ドキュメント**とする。
-
-プロジェクト固有の実装ルールは直接書かず、
-**参照先（CONTEXT.md）を示す**。
+plan の修正が必要な場合は、`/plan-fix` を使用して
+影響分析と変更履歴を伴った修正を行う。
 
 ---
 
-## ドキュメント構成と役割
+### 3. Skills でワークフローを配布する
+計画作成・レビューのワークフローを
+**[Vercel Skills](https://github.com/vercel-labs/skills) エコシステム**で管理・配布する。
+
+- `npx skills add` で一発導入
+- SKILL.md ベースのシンプルな構造
+- プロジェクト単位 or グローバルでインストール可能
+
+---
+
+## スキル構成
 
 ```text
-.claude/
-├─ CLAUDE.md          # 憲法（Claude の振る舞い・判断ルール）
-├─ BASIC.md           # 基本法（plan 駆動開発・役割分離のルール）
-├─ AI_DEV_RULES.md    # 補足法（並列 AI 開発固有のルール）
-├─ CONTEXT.md         # 地図（このプロジェクトの正規ドキュメント一覧）
-└─ plans/             # 契約書（feature ごとの実装計画）
-    └─ <feature>/
-        ├─ 00_spec.md
-        ├─ 10_tasks.md
-        ├─ 11_api_contract.md
-        ├─ 15_execution_order.md
-        ├─ 20_impl_ui.md
-        ├─ 21_impl_api.md
-        └─ 30_review_test.md
+skills/
+├── plan-master/    # 実装計画書の作成（/plan-master で呼び出し）
+├── plan-fix/       # plan の修正（/plan-fix で呼び出し）
+├── ai-review/      # 実装のレビュー・報告（/ai-review で呼び出し）
+└── base-rules/     # 基本ルール（自動適用）
 ```
 
-### 各ドキュメントの関係
+### Action スキル（明示呼び出し）
 
-```text
-CLAUDE.md（憲法）
-  ├─→ BASIC.md（基本法）        … 全プロジェクト共通の開発ルール
-  ├─→ AI_DEV_RULES.md（補足法） … 並列 AI 開発時の追加ルール
-  ├─→ CONTEXT.md（地図）        … プロジェクト固有の参照先・制約
-  └─→ plans/<feature>/（契約書） … feature ごとの実装計画
-```
+| スキル | 説明 |
+|--------|------|
+| `plan-master` | `.claude/plans/<feature>/plan.md` に実装計画書を作成 |
+| `plan-fix` | 承認済み plan.md の修正。影響分析・変更履歴の追記 |
+| `ai-review` | 実装を plan と照合してレビュー報告 |
 
-- **CLAUDE.md** は参照指示のみを持ち、ルール本体は BASIC.md / AI_DEV_RULES.md に分離
-- **BASIC.md / AI_DEV_RULES.md** は ai-dev-tools からのシンボリックリンク（更新が自動反映）
-- **CONTEXT.md** はプロジェクトごとにコピー・編集する（テンプレートからの出発点）
-- **plans/** は feature ごとに作成・消費される（plan-master スキルが生成）
+### Rule スキル（自動適用）
+
+| スキル | 説明 |
+|--------|------|
+| `base-rules` | プロジェクト調査（Serena MCP 活用）・コード品質・安全性・スコープ管理の共通ルール |
 
 ---
 
@@ -93,30 +82,32 @@ CLAUDE.md（憲法）
 ### 全体像
 
 ```text
-[1. 計画]          [2. 実装]              [3. レビュー]
-plan-master    →   worktree で並列実装  →   ai-review
-                   (UI / API / ...)        (各 worktree で実行)
+[1. 計画]          [2. 実装]              [3. レビュー]      [4. マージ]
+/plan-master   →   worktree で並列実装  →   /ai-review   →   PR 作成・削除
+                   (UI / API / ...)        (各 worktree で)
+
+※ plan 修正が必要な場合: /plan-fix → 修正後に再実装
 ```
 
 ### ステップ 1: 計画作成（plan-master）
 
 1. Claude セッションで `/plan-master` を実行
 2. ブランチ名と機能概要を伝える
-3. plan-master がプロジェクトを調査（Serena MCP があれば活用）
-4. `.claude/plans/<feature>/` に計画ファイルを生成
+3. plan-master がプロジェクトを調査
+4. `.claude/plans/<feature>/plan.md` に実装計画書を生成
 5. 人間が計画を確認・承認する
 
 **ポイント**:
 - plan-master はコードを書かない（計画のみ）
 - 計画は「契約書」— 承認後は実装者が勝手に変更してはならない
-- 変更規模に応じて作成ファイル数が変わる（Small: 2ファイル、Medium/Large: 最大7ファイル）
+- 1 ファイル（plan.md）に全情報を集約。変更規模に応じてセクションを増減
 
-### ステップ 2: 並列実装（ai-wt + Claude）
+### ステップ 2: 並列実装（wt + Claude）
 
-1. `ai-wt create <feature> --roles ui,api` で worktree を作成
+1. `wt create <feature> ui api` で worktree を作成
 2. 各 worktree で別の Claude セッションを起動
-3. 各セッションは plan の `20_impl_*.md` に従って実装
-4. `15_execution_order.md` がある場合、その順序に従う
+3. 各セッションは plan.md の実装指示セクションに従って実装
+4. plan.md に実行順序セクションがある場合、その順序に従う
 
 **ポイント**:
 - 1 worktree = 1 役割（UI / API など）
@@ -137,22 +128,33 @@ plan-master    →   worktree で並列実装  →   ai-review
 - 修正の判断と実施は実装者に委ねる
 - レビュー用の worktree は不要（同じ worktree で新しい Claude セッションを使う）
 
+### plan の修正が必要な場合
+
+レビューで Critical が出た原因が plan にある場合、または実装中に仕様漏れが発覚した場合：
+
+1. `/plan-fix` を実行
+2. plan-fix が影響分析を実施（影響を受ける worktree・セクションを特定）
+3. plan.md を最小限の差分で修正し、変更履歴を追記
+4. 人間が修正を承認
+5. 影響を受ける worktree で再実装
+
 ### ステップ 4: マージ
 
 1. 各 worktree の PR を作成
 2. レビュー指摘の修正が完了していることを確認
 3. main ブランチにマージ
-4. `ai-wt remove <feature> --roles ui,api` で worktree を削除
+4. `wt remove <feature> ui api` で worktree を削除
 
 ---
 
 ## 役割分離
 
-このフローでは Claude を3つの役割で使い分ける。
+このフローでは Claude を4つの役割で使い分ける。
 
 | 役割 | 担当 | 禁止事項 |
 |------|------|---------|
 | 計画 | plan-master | コードの実装・変更 |
+| 計画修正 | plan-fix | コードの実装・変更、plan の全面書き直し |
 | 実装 | Claude セッション | plan の自己変更、スコープ外のファイル変更 |
 | レビュー | ai-review | コードの修正、plan にない要件の追加 |
 
@@ -161,73 +163,52 @@ plan-master    →   worktree で並列実装  →   ai-review
 
 ---
 
-## plan ファイルの番号体系
+## plan.md のセクション構成
 
-| 番号帯 | 種別 | ファイル例 |
-|--------|------|-----------|
-| 00 | 仕様（不変） | `00_spec.md` |
-| 10 | タスク・契約・順序 | `10_tasks.md`, `11_api_contract.md`, `15_execution_order.md` |
-| 20 | 実装指示（役割別） | `20_impl_ui.md`, `21_impl_api.md` |
-| 30 | レビュー・テスト | `30_review_test.md` |
+| セクション | 必須 | 説明 |
+|-----------|------|------|
+| 仕様 | 常に | 要件・制約・データモデル |
+| タスク分解 | 常に | スコープ・許可ファイル・完了条件 |
+| API 契約 | 条件付き | エンドポイント・型定義（UI + API 並列の場合） |
+| 実行順序 | 条件付き | worktree の依存関係（複数 worktree の場合） |
+| 実装指示 | 中〜大規模 | 役割ごとの詳細 |
+| レビュー・テスト | 中〜大規模 | チェックリスト・受け入れ条件 |
+| 変更履歴 | plan-fix 時 | 変更理由・影響範囲（plan-fix が追記） |
 
 **変更規模による使い分け:**
 
-- **Small**（軽微修正）: `00_spec.md` + `10_tasks.md` のみ
-- **Medium / Large**（新機能・複数レイヤ）: 全ファイル作成
+- **Small**（軽微修正）: 仕様 + タスク分解のみ
+- **Medium / Large**（新機能・複数レイヤ）: 該当する全セクション
 
 迷った場合は Medium / Large として扱う。
 
 ---
 
-## ツール構成
-
-ai-dev-tools は以下の3つのコマンドと2つのスキルで構成される。
-
-### コマンド（bin/）
-
-| コマンド | 用途 |
-|---------|------|
-| `ai-wt` | git worktree の作成・削除・一覧 |
-| `setup-skills` | スキルを `~/.claude/skills/` にシンボリックリンク展開 |
-| `setup-claudemd` | プロジェクトに CLAUDE.md / テンプレートを展開 |
-
-### スキル（templates/skills/）
-
-| スキル | 用途 |
-|--------|------|
-| `plan-master` | 計画ファイルの作成 |
-| `ai-review` | 実装のレビュー・報告 |
-
-### テンプレート（templates/claude/）
-
-| ファイル | 展開方式 | 用途 |
-|---------|---------|------|
-| `BASIC.md` | シンボリックリンク | 基本開発ルール |
-| `AI_DEV_RULES.md` | シンボリックリンク | 並列 AI 開発ルール |
-| `context.md` | コピー | CONTEXT.md テンプレート |
-
-シンボリックリンクのファイルは ai-dev-tools 側を更新すれば全プロジェクトに自動反映される。
-CONTEXT.md はプロジェクトごとに内容が異なるためコピー方式。
-
----
-
 ## 導入手順
 
-### 初回セットアップ（1回のみ）
+### Skills のインストール
+
+```bash
+# プロジェクトにインストール
+npx skills add ryoshimm/ai-dev-tools
+
+# またはグローバルにインストール
+npx skills add ryoshimm/ai-dev-tools -g
+```
+
+### プロジェクトへの CLAUDE.md 配置（推奨）
+
+プロジェクトごとに `.claude/CLAUDE.md` を配置すると、AI がプロジェクト固有のルールに従います。
+
+テンプレートは [templates/](templates/) を参照してください。
+
+### wt のインストール（任意）
+
+並列開発で git worktree を使う場合：
 
 ```bash
 git clone <ai-dev-tools-repo>
-cd ai-dev-tools
-./install.sh        # コマンドを ~/bin にリンク、PATH 追加
-setup-skills        # スキルを ~/.claude/skills/ にリンク
-```
-
-### プロジェクトへの導入（プロジェクトごと）
-
-```bash
-cd /path/to/your-project
-setup-claudemd      # .claude/ にテンプレート展開
-# → CONTEXT.md をプロジェクトに合わせて編集
+ln -sf "$(pwd)/bin/wt" ~/bin/wt
 ```
 
 ### 機能開発の流れ
@@ -237,7 +218,7 @@ setup-claudemd      # .claude/ にテンプレート展開
 #    Claude セッションで /plan-master を実行
 
 # 2. worktree 作成
-ai-wt create add-vote --roles ui,api
+wt create add-vote ui api
 
 # 3. 並列実装
 #    各 worktree で Claude セッションを起動し、plan に従って実装
@@ -247,5 +228,5 @@ ai-wt create add-vote --roles ui,api
 
 # 5. マージ・片付け
 #    PR 作成 → マージ → worktree 削除
-ai-wt remove add-vote --roles ui,api
+wt remove add-vote ui api
 ```
