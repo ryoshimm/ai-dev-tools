@@ -38,6 +38,8 @@ npx skills add ryoshimm/ai-dev-tools -g
 | **plan-master** | 実装計画書の作成 | `/plan-master` |
 | **plan-fix** | 承認済み plan の修正 | `/plan-fix` |
 | **ai-review** | 実装のレビュー・報告 | `/ai-review` |
+| **code-review** | コード品質レビュー・改善提案 | `/code-review` |
+| **code-fix** | code-review の指摘に基づく修正 | `/code-fix` |
 
 ### Rule スキル（自動適用）
 
@@ -70,6 +72,23 @@ npx skills add ryoshimm/ai-dev-tools -g
 
 - Critical / Warning / Info の 3 段階で問題を報告
 - 計画との整合性・API 契約・コード品質・安全性・テストをチェック
+
+### code-review
+
+現在のブランチの差分を対象に、コード品質の改善提案を報告します。
+コードの修正は行いません。
+
+- リファクタリング・共通化・可読性・パフォーマンスの観点でチェック
+- Refactor / DRY / Improve の 3 カテゴリで報告
+- `ai-review`（plan 整合性）とは独立して使用可能
+
+### code-fix
+
+`/code-review` の指摘に基づき、コードを修正します。
+
+- 修正前にユーザーの承認を得る
+- 振る舞いを変えないリファクタリングのみ実施
+- テストが失敗した場合は巻き戻し
 
 ### base-rules
 
@@ -142,7 +161,11 @@ ai-dev-tools/
 │   ├── plan-fix/
 │   │   └── SKILL.md           #   plan の修正
 │   ├── ai-review/
-│   │   └── SKILL.md           #   レビュー
+│   │   └── SKILL.md           #   plan 整合性レビュー
+│   ├── code-review/
+│   │   └── SKILL.md           #   コード品質レビュー
+│   ├── code-fix/
+│   │   └── SKILL.md           #   code-review の指摘修正
 │   └── base-rules/
 │       └── SKILL.md           #   基本ルール（自動適用）
 ├── bin/
